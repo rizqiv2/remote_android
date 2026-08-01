@@ -12,7 +12,7 @@ Once configured, the tablet can reboot or power-cycle indefinitely, and it will 
 [ Unattended Android Device ]
   ├── Tailscale VPN (Always-On Mode)
   ├── MacroDroid (Auto-enables Wireless Debugging on boot)
-  ├── Termux + Termux:Boot (Auto-scans ADB port & starts server)
+  ├── Termux + Termux:Boot (Auto-detects real ADB port & starts server)
   └── Samsung Battery Protection (Capped at 80% charge)
         ▲
         │  (Direct encrypted remote access from anywhere)
@@ -53,16 +53,16 @@ Android turns off Wireless Debugging after a reboot. MacroDroid will turn it bac
 2. Create a new Macro:
    - **Trigger:** Device Boot *(or Direct Boot)*
    - **Action:** System Setting → Global → `adb_wifi_enabled` = `1`
-3. Grant MacroDroid permission once via Termux:
+3. Grant permission once via Termux:
    ```bash
    adb shell pm grant com.arlosoft.macrodroid android.permission.WRITE_SECURE_SETTINGS
    ```
 
 ---
 
-### Step 4: Setup Termux Auto-Port Scanner & Boot Script
+### Step 4: Setup Termux Auto-Port Reader & Boot Script
 
-Android assigns a dynamic random port to Wireless Debugging on boot. This script automatically finds the active port, completes the ADB handshake, and starts the server.
+This script waits for MacroDroid to enable Wireless Debugging, verifies the genuine ADB port via socket handshake, updates `.env`, and starts the server.
 
 1. Open **Termux** and install dependencies:
    ```bash
@@ -76,39 +76,44 @@ mkdir -p ~/.termux/boot
 cat << 'EOF' > ~/.termux/boot/autostart.sh
 #!/data/data/com.termux/files/usr/bin/bash
 
-# 1. Keep CPU awake
+# 1. Prevent Android CPU sleep
 termux-wake-lock
 
-# 2. Wait for Android network & MacroDroid to initialize
-sleep 8
+# 2. Wait 5s for MacroDroid to enable Wireless Debugging
+sleep 5
 
-# 3. Find the REAL ADB port by verifying actual ADB handshake
-PORT=$(python3 -c "
-import socket, subprocess
-def find_adb():
-    for p in range(30000, 50000):
-        s = socket.socket()
-        s.settimeout(0.005)
-        if s.connect_ex(('127.0.0.1', p)) == 0:
-            s.close()
-            r = subprocess.run(['adb', 'connect', f'localhost:{p}'], capture_output=True, text=True)
-            if 'connected' in r.stdout.lower() or 'already connected' in r.stdout.lower():
-                devs = subprocess.run(['adb', 'devices'], capture_output=True, text=True).stdout
-                if f'localhost:{p}' in devs and 'offline' not in devs:
-                    return p
-        else:
-            s.close()
-    return ''
-print(find_adb())
-")
+# 3. Python Auto-Connect (Scans & verifies real ADB port)
+python3 -c "
+import socket, subprocess, time
 
-if [ -n "$PORT" ]; then
-    echo "✅ Verified ADB port: $PORT"
-    cd ~/remote_android
-    sed -i "s/ADB_DEVICE_SERIAL=.*/ADB_DEVICE_SERIAL=localhost:$PORT/" .env
-else
-    adb connect localhost:5555
-fi
+def connect_real_adb():
+    for attempt in range(10):
+        for p in range(30000, 50000):
+            s = socket.socket()
+            s.settimeout(0.003)
+            if s.connect_ex(('127.0.0.1', p)) == 0:
+                s.close()
+                r = subprocess.run(['adb', 'connect', f'localhost:{p}'], capture_output=True, text=True)
+                if 'connected' in r.stdout.lower() or 'already connected' in r.stdout.lower():
+                    devs = subprocess.run(['adb', 'devices'], capture_output=True, text=True).stdout
+                    if f'localhost:{p}' in devs and 'offline' not in devs:
+                        print(f'✅ Connected to real ADB on port {p}')
+                        with open('/data/data/com.termux/files/home/remote_android/.env', 'r') as f:
+                            lines = f.readlines()
+                        with open('/data/data/com.termux/files/home/remote_android/.env', 'w') as f:
+                            for line in lines:
+                                if line.startswith('ADB_DEVICE_SERIAL='):
+                                    f.write(f'ADB_DEVICE_SERIAL=localhost:{p}\n')
+                                else:
+                                    f.write(line)
+                        return True
+            else:
+                s.close()
+        time.sleep(2)
+    return False
+
+connect_real_adb()
+"
 
 # 4. Start Python Remote Control Server in background
 cd ~/remote_android
@@ -159,5 +164,5 @@ To test unattended operation:
 | Issue | Cause | Fix |
 |---|---|---|
 | `Refused to connect` on browser | Server not running or Tailscale VPN disconnected | Ensure Tailscale is set to *Always-On VPN* in Android settings. |
-| `Device offline` or `Connection refused` in logs | Wireless Debugging port changed on boot | MacroDroid must auto-enable Wireless Debugging on boot, and `autostart.sh` will auto-scan the port. |
+| `Device offline` or `Connection refused` in logs | Wireless Debugging port changed on boot | Grant `READ_SECURE_SETTINGS` permission to Termux or use updated `autostart.sh` script. |
 | Server stops working after 1 hour | Android battery saver killed Termux | Set Termux & Tailscale battery settings to *Unrestricted*. |

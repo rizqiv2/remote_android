@@ -78,33 +78,38 @@ termux-wake-lock
 # 2. Wait 8s for network and Wireless ADB to initialize
 sleep 8
 
-# 3. Auto-find real ADB port by verifying actual ADB handshake
-PORT=$(python3 -c "
-import socket, subprocess
-def find_adb():
-    for p in range(30000, 50000):
-        s = socket.socket()
-        s.settimeout(0.005)
-        if s.connect_ex(('127.0.0.1', p)) == 0:
-            s.close()
-            r = subprocess.run(['adb', 'connect', f'localhost:{p}'], capture_output=True, text=True)
-            if 'connected' in r.stdout.lower() or 'already connected' in r.stdout.lower():
-                devs = subprocess.run(['adb', 'devices'], capture_output=True, text=True).stdout
-                if f'localhost:{p}' in devs and 'offline' not in devs:
-                    return p
-        else:
-            s.close()
-    return ''
-print(find_adb())
-")
+# 3. Python Auto-Connect (Scans & verifies real ADB port)
+python3 -c "
+import socket, subprocess, time
 
-if [ -n "$PORT" ]; then
-    echo "✅ Verified ADB port: $PORT"
-    cd ~/remote_android
-    sed -i "s/ADB_DEVICE_SERIAL=.*/ADB_DEVICE_SERIAL=localhost:$PORT/" .env
-else
-    adb connect localhost:5555
-fi
+def connect_real_adb():
+    for attempt in range(10):
+        for p in range(30000, 50000):
+            s = socket.socket()
+            s.settimeout(0.003)
+            if s.connect_ex(('127.0.0.1', p)) == 0:
+                s.close()
+                r = subprocess.run(['adb', 'connect', f'localhost:{p}'], capture_output=True, text=True)
+                if 'connected' in r.stdout.lower() or 'already connected' in r.stdout.lower():
+                    devs = subprocess.run(['adb', 'devices'], capture_output=True, text=True).stdout
+                    if f'localhost:{p}' in devs and 'offline' not in devs:
+                        print(f'✅ Connected to real ADB on port {p}')
+                        with open('/data/data/com.termux/files/home/remote_android/.env', 'r') as f:
+                            lines = f.readlines()
+                        with open('/data/data/com.termux/files/home/remote_android/.env', 'w') as f:
+                            for line in lines:
+                                if line.startswith('ADB_DEVICE_SERIAL='):
+                                    f.write(f'ADB_DEVICE_SERIAL=localhost:{p}\n')
+                                else:
+                                    f.write(line)
+                        return True
+            else:
+                s.close()
+        time.sleep(2)
+    return False
+
+connect_real_adb()
+"
 
 # 4. Start Python Remote Control Server in background
 cd ~/remote_android
