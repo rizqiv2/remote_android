@@ -32,7 +32,10 @@ from fastapi.responses import (
     RedirectResponse,
 )
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field, field_validator
+try:
+    from pydantic import BaseModel, Field, field_validator
+except ImportError:
+    from pydantic import BaseModel, Field, validator as field_validator
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from .adb_controller import ADBError, adb
@@ -150,7 +153,6 @@ class TapRequest(BaseModel):
     y: float
 
     @field_validator("x", "y")
-    @classmethod
     def must_be_finite(cls, v):
         import math
         if not math.isfinite(v):
