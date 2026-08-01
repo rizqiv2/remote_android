@@ -1,137 +1,195 @@
-# Android Remote Control 📱
+# Android Remote Control 📱⚡
 
-A self-hosted web app to view and control your Android device from any browser — with a hardened, secure login page.
-
-## Features
-
-- 🖥️ **Live screen mirroring** — real-time JPEG stream over WebSocket
-- 👆 **Touch & swipe control** — click/drag on the canvas
-- ⌨️ **Keyboard input** — type directly, or use text box to send text
-- 🔒 **Hardened login** — bcrypt, rate limiting, CSRF, CSP headers, HttpOnly JWT
-- 📱 **Responsive** — works from phone browser too
-- 🌐 **Tunnel-ready** — works behind ngrok, Cloudflare Tunnel, etc.
+A self-hosted, secure web application to view and remotely control your Android phone or tablet from any web browser worldwide — featuring live screen mirroring, touch & swipe control, keyboard input, security audit logs, and battery protection.
 
 ---
 
-## Requirements
+## 🌟 Key Features
 
-| Tool | Install |
-|---|---|
-| Python 3.10+ | `sudo apt install python3` |
-| ADB | `sudo apt install adb` |
-| Android (USB Debug enabled) | Developer Options → USB Debugging |
+- 🖥️ **Live Screen Streaming** — Low-latency JPEG stream over WebSocket (canvas rendering).
+- 👆 **Full Control** — Tap, drag/swipe, back, home, recents, volume, and text input.
+- 📱 **2 Deployment Modes**:
+  - **PC Host Mode:** Linux PC runs the server and controls phone over USB/Wi-Fi.
+  - **Standalone Android Mode:** Runs **100% inside your Android Phone/Tablet** via Termux — *no PC needed!*
+- 🔒 **Hardened Security**:
+  - **bcrypt** password hashing (cost 12, constant-time compare).
+  - **IP Rate Limiting** (5 failed attempts → 15-minute lockout).
+  - **HttpOnly JWT Session Cookies** (JS cannot steal session tokens).
+  - **CSRF Double-Submit Tokens** on all state-changing actions.
+  - **Strict CSP Headers** & XSS protection.
+- 🛡️ **Security Audit Logs** — Immutable, paginated activity log recording logins, taps, swipes, and commands (auto-rotated to max 10,000 entries so storage never fills up).
+- 🔋 **Battery Health Protection** — Setup guide for 24/7 plugged-in server tablets (Samsung 80% charge limit).
 
 ---
 
-## Quick Start
+## 🛠️ Deployment Mode 1: Standalone on Android (Termux — No PC Needed)
 
-### 1. Run setup
+This mode turns your Android phone or tablet into an **unattended 24/7 standalone server**.
+
+### Step 1: Install Termux & Tailscale
+1. Install **Termux** (from F-Droid or GitHub).
+2. Install **Tailscale** on your Android phone and enable **Always-On VPN**:
+   - *Android Settings → Connections → More Connection Settings → VPN → Tailscale ⚙️ → Always-on VPN: ON*.
+
+### Step 2: Install Packages in Termux
+Open Termux on your phone and run:
+
 ```bash
+# 1. Update and install Python, ADB, and dependencies
+apt update && apt install -y python android-tools libjpeg-turbo zlib git termux-api
+
+# 2. Clone or copy project
+cd ~
+git clone https://github.com/rizqiv2/remote_android.git
+cd remote_android
+
+# 3. Create virtual environment & install requirements
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+
+# 4. Set your login password
+python set_password.py
+```
+
+### Step 3: Enable Auto-Wireless ADB via MacroDroid
+Since Android turns off Wireless Debugging after a reboot, use **MacroDroid** (or Shizuku) to re-enable it automatically:
+
+1. In **MacroDroid**, create a Macro:
+   - **Trigger:** Device Boot (or Direct Boot)
+   - **Action:** System Setting → Global → `adb_wifi_enabled` = `1`
+2. Grant permission once via Termux:
+   ```bash
+   adb shell pm grant com.arlosoft.macrodroid android.permission.WRITE_SECURE_SETTINGS
+   ```
+
+### Step 4: Setup 100% Unattended Auto-Start Script
+To make your server auto-detect the dynamic Wireless Debugging port and launch on reboot:
+
+```bash
+mkdir -p ~/.termux/boot
+
+cat << 'EOF' > ~/.termux/boot/autostart.sh
+#!/data/data/com.termux/files/usr/bin/bash
+
+# 1. Prevent CPU sleep
+termux-wake-lock
+
+# 2. Wait 8s for network and Wireless ADB to initialize
+sleep 8
+
+# 3. Auto-find real ADB port by verifying actual ADB handshake
+PORT=$(python3 -c "
+import socket, subprocess
+def find_adb():
+    for p in range(30000, 50000):
+        s = socket.socket()
+        s.settimeout(0.005)
+        if s.connect_ex(('127.0.0.1', p)) == 0:
+            s.close()
+            r = subprocess.run(['adb', 'connect', f'localhost:{p}'], capture_output=True, text=True)
+            if 'connected' in r.stdout.lower() or 'already connected' in r.stdout.lower():
+                devs = subprocess.run(['adb', 'devices'], capture_output=True, text=True).stdout
+                if f'localhost:{p}' in devs and 'offline' not in devs:
+                    return p
+        else:
+            s.close()
+    return ''
+print(find_adb())
+")
+
+if [ -n "$PORT" ]; then
+    echo "✅ Verified ADB port: $PORT"
+    cd ~/remote_android
+    sed -i "s/ADB_DEVICE_SERIAL=.*/ADB_DEVICE_SERIAL=localhost:$PORT/" .env
+else
+    adb connect localhost:5555
+fi
+
+# 4. Start Python Remote Control Server in background
+cd ~/remote_android
+nohup python -m server.main > ~/server.log 2>&1 &
+EOF
+
+chmod +x ~/.termux/boot/autostart.sh
+```
+
+---
+
+## 🖥️ Deployment Mode 2: Hosted on Linux PC
+
+If you prefer running the server on your Linux PC:
+
+```bash
+# 1. Run setup script
 bash setup.sh
-```
-This will:
-- Create a Python virtual environment
-- Install all dependencies
-- Generate a JWT secret
-- Ask you to set a password (stored as bcrypt hash in `.env`)
 
-### 2. Connect your Android
-```bash
-adb devices   # USB connection
-# or
-adb connect 192.168.x.x:5555   # Wi-Fi (enable wireless ADB in Dev Options)
-```
+# 2. Connect Android via USB or Wireless ADB
+adb devices
 
-### 3. Start the server
-```bash
+# 3. Start server
 source .venv/bin/activate
 python -m server.main
 ```
 
-### 4. Open in browser
-```
-http://localhost:8080
-```
+---
+
+## 🌐 Accessing the Remote Control Web UI
+
+Open any web browser on your PC, laptop, or phone connected to your Tailscale network:
+
+👉 **`http://<your-phone-tailscale-ip>:8080`**
+
+- Log in with your password.
+- Click the **📄 Audit Logs** icon in the top header to view paginated security logs.
+- Click **🔄 Reconnect ADB** in the side panel if ADB ever needs manual reconnection.
 
 ---
 
-## Internet Access (via tunnel)
+## 🔋 24/7 Battery Protection Setup (Samsung Devices)
 
-### ngrok
-```bash
-ngrok http 8080
-```
+To prevent battery swelling or degradation when plugged into power 24/7:
 
-### Cloudflare Tunnel
-```bash
-cloudflared tunnel --url http://localhost:8080
-```
-
-> ⚠️ When using HTTPS via tunnel, change `secure=False` → `secure=True` in `server/main.py` for the cookie settings.
+1. **Via Samsung Settings:**
+   - *Settings → Battery → Protect Battery / Battery Protection → Set to **Maximum (80% Limit)**.*
+2. **Via ADB Command:**
+   ```bash
+   adb shell settings put global protect_battery 1
+   ```
 
 ---
 
-## Configuration (`.env`)
+## 🛡️ Security Architecture
 
-| Variable | Default | Description |
-|---|---|---|
-| `PASSWORD_HASH` | — | bcrypt hash of your password (set by setup.sh) |
-| `JWT_SECRET` | — | Random hex string for signing tokens |
-| `JWT_EXPIRE_HOURS` | `8` | Session lifetime |
-| `RATE_LIMIT_MAX_ATTEMPTS` | `5` | Failed logins before lockout |
-| `RATE_LIMIT_LOCKOUT_SECONDS` | `900` | Lockout duration (15 min) |
-| `ADB_DEVICE_SERIAL` | _(first device)_ | Specific device serial |
-| `SCREEN_FPS` | `10` | Screen capture FPS (1–30) |
-| `SERVER_HOST` | `127.0.0.1` | Bind address |
-| `SERVER_PORT` | `8080` | Port |
-
----
-
-## Security Architecture
-
-| Layer | Measure |
+| Security Measure | Implementation |
 |---|---|
-| **Brute force** | 5 attempts/IP → 15-min lockout (server-side, sliding window) |
-| **Password** | bcrypt cost=12, constant-time comparison |
-| **Session** | JWT in `HttpOnly; SameSite=Strict` cookie — JS cannot read it |
-| **CSRF** | Double-submit cookie pattern — every POST validates header vs cookie |
-| **XSS** | Strict CSP (`script-src 'self'`), all DOM writes via `textContent` |
-| **Clickjacking** | `X-Frame-Options: DENY` + CSP `frame-ancestors 'none'` |
-| **ADB injection** | All commands use subprocess list form, coords clamped, text whitelisted |
-| **Error messages** | Generic — no difference between "wrong user" vs "wrong password" |
+| **Brute Force Protection** | 5 failed attempts per IP → 15-minute server-side lockout |
+| **Password Storage** | bcrypt (cost factor 12), constant-time string comparison |
+| **Session Security** | JWT signed tokens stored in `HttpOnly; SameSite=Strict` cookies |
+| **CSRF Defense** | Double-submit token on all state-changing endpoints |
+| **XSS Defense** | Strict CSP (`script-src 'self'`), DOM nodes updated via `.textContent` only |
+| **Audit Logs** | Paginated activity logger storing up to 10,000 rotating JSONL entries |
+| **ADB Command Injection** | Subprocess argument lists (`shell=False`), coordinate clamping |
 
 ---
 
-## Controls Reference
-
-| Action | How |
-|---|---|
-| Tap | Click on screen |
-| Swipe | Click and drag |
-| Type text | Focus canvas, type keys OR use Text box in sidebar |
-| Back | `Esc` key or ← button |
-| Home | 🏠 button |
-| Recents | ⊞ button |
-| Fullscreen | `F11` or ⛶ button |
-| Volume | 🔊/🔇 buttons in sidebar |
-
----
-
-## Project Structure
+## 📂 Project Structure
 
 ```
 remote_android/
 ├── server/
-│   ├── main.py            # FastAPI app, routes, middleware
-│   ├── auth.py            # bcrypt, JWT, CSRF, rate limiter
-│   ├── adb_controller.py  # Safe ADB abstraction
-│   ├── screen_stream.py   # Async screen capture + WS broadcast
-│   └── config.py          # Settings from .env
+│   ├── main.py            # FastAPI application & API endpoints
+│   ├── auth.py            # bcrypt, JWT, CSRF, and rate limiting
+│   ├── audit_logger.py    # Rotating audit logger (max 10,000 entries)
+│   ├── adb_controller.py  # Safe ADB abstraction layer
+│   ├── screen_stream.py   # Async screen capture & WebSocket streamer
+│   └── config.py          # Environment settings loader
 ├── static/
 │   ├── login.html / remote.html
 │   ├── css/ (login.css, remote.css)
 │   └── js/  (login.js, remote.js)
 ├── requirements.txt
 ├── setup.sh
+├── set_password.py
 └── .env.example
 ```
