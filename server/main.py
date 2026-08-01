@@ -39,6 +39,7 @@ except ImportError:
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from .adb_controller import ADBError, adb
+from .audit_logger import audit_logger
 from .auth import (
     create_jwt,
     generate_csrf_token,
