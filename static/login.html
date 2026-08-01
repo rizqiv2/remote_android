@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Android Remote — Sign In</title>
+  <meta name="description" content="Secure login for Android Remote Control" />
+  <meta name="robots" content="noindex, nofollow" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/css/login.css" />
+</head>
+<body>
+
+  <!-- Animated background orbs -->
+  <div class="bg-orbs" aria-hidden="true">
+    <div class="orb orb-1"></div>
+    <div class="orb orb-2"></div>
+    <div class="orb orb-3"></div>
+  </div>
+
+  <main class="login-wrapper" role="main">
+    <div class="login-card" id="loginCard">
+
+      <!-- Logo / Brand -->
+      <div class="brand">
+        <div class="brand-icon" aria-hidden="true">
+          <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect x="8" y="2" width="16" height="28" rx="3" stroke="currentColor" stroke-width="2"/>
+            <circle cx="16" cy="25" r="1.5" fill="currentColor"/>
+            <line x1="12" y1="6" x2="20" y2="6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            <path d="M4 12 L28 12" stroke="currentColor" stroke-width="1.5" stroke-dasharray="2 2"/>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <h1 class="brand-title">Android Remote</h1>
+          <p class="brand-sub">Secure remote control</p>
+        </div>
+      </div>
+
+      <!-- Status Badge -->
+      <div class="status-badge" id="statusBadge" aria-live="polite">
+        <span class="status-dot" id="statusDot"></span>
+        <span class="status-text" id="statusText">Checking device…</span>
+      </div>
+
+      <!-- Form -->
+      <form id="loginForm" novalidate autocomplete="off" spellcheck="false">
+        <div class="field-group">
+          <label class="field-label" for="passwordInput">Password</label>
+          <div class="field-wrap">
+            <input
+              id="passwordInput"
+              type="password"
+              class="field-input"
+              placeholder="Enter your password"
+              autocomplete="current-password"
+              maxlength="256"
+              required
+            />
+            <button type="button" class="toggle-visibility" id="togglePw" aria-label="Toggle password visibility">
+              <svg class="eye-icon" id="eyeIcon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                <circle cx="12" cy="12" r="3"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Error / Lockout message -->
+        <div class="alert-box" id="alertBox" role="alert" aria-live="assertive" hidden>
+          <span class="alert-icon" aria-hidden="true">⚠</span>
+          <span class="alert-text" id="alertText"></span>
+        </div>
+
+        <!-- Lockout countdown -->
+        <div class="lockout-box" id="lockoutBox" hidden>
+          <div class="lockout-icon" aria-hidden="true">🔒</div>
+          <p class="lockout-title">Too many failed attempts</p>
+          <p class="lockout-msg">Try again in <strong id="lockoutCountdown">--</strong></p>
+          <div class="lockout-bar-wrap">
+            <div class="lockout-bar" id="lockoutBar"></div>
+          </div>
+        </div>
+
+        <button type="submit" class="btn-login" id="btnLogin">
+          <span class="btn-text">Sign In</span>
+          <span class="btn-spinner" id="btnSpinner" hidden aria-hidden="true"></span>
+        </button>
+      </form>
+
+      <!-- Footer -->
+      <p class="footer-note">
+        Access is logged. Unauthorized use is prohibited.
+      </p>
+    </div>
+  </main>
+
+  <script src="/static/js/login.js"></script>
+</body>
+</html>

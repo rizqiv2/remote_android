@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Android Remote — Control</title>
+  <meta name="robots" content="noindex, nofollow" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/css/remote.css" />
+</head>
+<body>
+
+  <!-- ── Top Bar ─────────────────────────────────────────────────────────── -->
+  <header class="top-bar" id="topBar">
+    <div class="top-bar-left">
+      <div class="device-icon" aria-hidden="true">
+        <svg width="16" height="16" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect x="8" y="2" width="16" height="28" rx="3" stroke="currentColor" stroke-width="2"/>
+          <circle cx="16" cy="25" r="1.5" fill="currentColor"/>
+        </svg>
+      </div>
+      <div class="device-info">
+        <span class="device-name" id="deviceName">Connecting…</span>
+        <span class="device-meta" id="deviceMeta">--</span>
+      </div>
+    </div>
+    <div class="top-bar-center">
+      <div class="status-pill" id="statusPill">
+        <span class="status-dot" id="statusDot"></span>
+        <span id="statusLabel">Connecting</span>
+      </div>
+    </div>
+    <div class="top-bar-right">
+      <div class="stats">
+        <span class="stat-item" title="Live FPS">
+          <span class="stat-icon">⚡</span>
+          <span id="fpsCounter">0</span> fps
+        </span>
+        <span class="stat-item" title="Battery">
+          <span class="stat-icon" id="battIcon">🔋</span>
+          <span id="battLevel">--</span>%
+        </span>
+      </div>
+      <button class="btn-icon" id="btnFullscreen" title="Toggle fullscreen" aria-label="Toggle fullscreen">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="15 3 21 3 21 9"/>
+          <polyline points="9 21 3 21 3 15"/>
+          <line x1="21" y1="3" x2="14" y2="10"/>
+          <line x1="3" y1="21" x2="10" y2="14"/>
+        </svg>
+      </button>
+      <button class="btn-icon btn-logout" id="btnLogout" title="Sign out" aria-label="Sign out">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+          <polyline points="16 17 21 12 16 7"/>
+          <line x1="21" y1="12" x2="9" y2="12"/>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- ── Main Layout ─────────────────────────────────────────────────────── -->
+  <div class="layout">
+
+    <!-- Screen canvas -->
+    <div class="screen-wrap" id="screenWrap">
+      <canvas id="screenCanvas" aria-label="Android screen" tabindex="0"></canvas>
+
+      <!-- Overlay states -->
+      <div class="overlay" id="overlayConnecting">
+        <div class="overlay-spinner" aria-hidden="true"></div>
+        <p class="overlay-msg">Connecting to device…</p>
+      </div>
+      <div class="overlay hidden" id="overlayDisconnected">
+        <div class="overlay-icon" aria-hidden="true">📵</div>
+        <p class="overlay-msg">Device disconnected</p>
+        <button class="btn-reconnect" id="btnReconnect">Reconnect</button>
+      </div>
+    </div>
+
+    <!-- ── Side Panel ─────────────────────────────────────────────────── -->
+    <aside class="side-panel" id="sidePanel">
+
+      <!-- Navigation buttons -->
+      <section class="panel-section">
+        <h2 class="panel-label">Navigation</h2>
+        <div class="nav-buttons">
+          <button class="nav-btn" id="btnBack" title="Back" aria-label="Back button">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="15 18 9 12 15 6"/>
+            </svg>
+          </button>
+          <button class="nav-btn" id="btnHome" title="Home" aria-label="Home button">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+              <polyline points="9 22 9 12 15 12 15 22"/>
+            </svg>
+          </button>
+          <button class="nav-btn" id="btnRecents" title="Recents" aria-label="Recents button">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="3" width="7" height="7" rx="1"/>
+              <rect x="14" y="3" width="7" height="7" rx="1"/>
+              <rect x="3" y="14" width="7" height="7" rx="1"/>
+              <rect x="14" y="14" width="7" height="7" rx="1"/>
+            </svg>
+          </button>
+        </div>
+      </section>
+
+      <!-- Text input -->
+      <section class="panel-section">
+        <h2 class="panel-label">Send Text</h2>
+        <div class="text-send-row">
+          <input
+            type="text"
+            id="textInput"
+            class="text-field"
+            placeholder="Type and press Enter…"
+            maxlength="500"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <button class="btn-send" id="btnSend" aria-label="Send text">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="22" y1="2" x2="11" y2="13"/>
+              <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+            </svg>
+          </button>
+        </div>
+      </section>
+
+      <!-- Volume -->
+      <section class="panel-section">
+        <h2 class="panel-label">Volume</h2>
+        <div class="vol-buttons">
+          <button class="nav-btn" id="btnVolUp" title="Volume Up" aria-label="Volume up">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+              <path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>
+              <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
+            </svg>
+          </button>
+          <button class="nav-btn" id="btnVolDown" title="Volume Down" aria-label="Volume down">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+              <line x1="23" y1="9" x2="17" y2="15"/>
+              <line x1="17" y1="9" x2="23" y2="15"/>
+            </svg>
+          </button>
+        </div>
+      </section>
+
+      <!-- Keyboard hint -->
+      <section class="panel-section keyboard-hint">
+        <h2 class="panel-label">Keyboard Shortcuts</h2>
+        <div class="hints">
+          <div class="hint-row"><kbd>Click</kbd><span>Tap</span></div>
+          <div class="hint-row"><kbd>Drag</kbd><span>Swipe</span></div>
+          <div class="hint-row"><kbd>Esc</kbd><span>Back</span></div>
+          <div class="hint-row"><kbd>F11</kbd><span>Fullscreen</span></div>
+        </div>
+      </section>
+
+      <!-- Connection info -->
+      <section class="panel-section">
+        <h2 class="panel-label">Connection</h2>
+        <div class="conn-info">
+          <div class="conn-row">
+            <span class="conn-key">Screen</span>
+            <span class="conn-val" id="connResolution">--</span>
+          </div>
+          <div class="conn-row">
+            <span class="conn-key">Viewers</span>
+            <span class="conn-val" id="connViewers">--</span>
+          </div>
+        </div>
+      </section>
+
+    </aside>
+  </div>
+
+  <!-- Touch ripple effect -->
+  <div class="touch-ripple hidden" id="touchRipple" aria-hidden="true"></div>
+
+  <script src="/static/js/remote.js"></script>
+</body>
+</html>
