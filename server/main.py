@@ -207,17 +207,25 @@ async def remote_page(claims: dict = Depends(require_auth)):
 async def api_login(request: Request, body: LoginRequest):
     """
     Login endpoint.
-    Rate-limited, uses constant-time comparison, generic error messages.
+    Rate-limited, uses constant-time comparison, generic error messages,
+    and logs all attempts to audit logger.
     """
+    ip = _get_client_ip(request)
+    user_agent = request.headers.get("User-Agent", "Unknown")
+
     # 1. Check rate limit FIRST (raises 429 if locked)
-    rate_limiter.check(request)
+    try:
+        rate_limiter.check(request)
+    except HTTPException as e:
+        audit_logger.log_event("LOGIN_BLOCKED", ip=ip, status="BLOCKED", details="IP locked out due to rate limit", user_agent=user_agent)
+        raise e
 
     # 2. Verify password (constant-time via bcrypt)
     ok = verify_password(body.password, settings.PASSWORD_HASH)
 
     if not ok:
         rate_limiter.record_failure(request)
-        # Generic message — no hint whether user/pass was wrong
+        audit_logger.log_event("LOGIN_FAILED", ip=ip, status="FAILED", details="Incorrect password attempt", user_agent=user_agent)
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED,
             {"error": "invalid_credentials", "message": "Invalid credentials."},
@@ -252,11 +260,21 @@ async def api_login(request: Request, body: LoginRequest):
 
 
 @app.post("/api/logout")
-async def api_logout(claims: dict = Depends(require_auth)):
+async def api_logout(request: Request, claims: dict = Depends(require_auth)):
+    ip = _get_client_ip(request)
+    user_agent = request.headers.get("User-Agent", "Unknown")
+    audit_logger.log_event("LOGOUT", ip=ip, status="SUCCESS", details="User signed out", user_agent=user_agent)
+
     response = JSONResponse({"ok": True})
     response.delete_cookie("session", path="/")
     response.delete_cookie("csrf_token", path="/")
     return response
+
+
+@app.get("/api/logs")
+async def api_get_logs(claims: dict = Depends(require_auth)):
+    """Return immutable rotating audit logs (read-only)."""
+    return {"logs": audit_logger.get_logs(limit=200)}
 
 
 # ─── Routes: Device Status ────────────────────────────────────────────────────

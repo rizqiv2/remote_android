@@ -46,6 +46,10 @@ const btnLogout         = document.getElementById('btnLogout');
 const btnFullscreen     = document.getElementById('btnFullscreen');
 const btnReconnect      = document.getElementById('btnReconnect');
 const btnAdbReconnect   = document.getElementById('btnAdbReconnect');
+const btnAuditLogs      = document.getElementById('btnAuditLogs');
+const modalAuditLogs    = document.getElementById('modalAuditLogs');
+const btnCloseAuditLogs = document.getElementById('btnCloseAuditLogs');
+const auditLogsBody     = document.getElementById('auditLogsBody');
 const touchRipple       = document.getElementById('touchRipple');
 
 // ── State ─────────────────────────────────────────────────────────────────────
@@ -396,6 +400,110 @@ if (btnAdbReconnect) {
       btnAdbReconnect.textContent = '🔄 Reconnect ADB';
       btnAdbReconnect.disabled = false;
     }, 3000);
+  });
+}
+
+// ── Audit Logs Modal ─────────────────────────────────────────────────────────
+
+async function fetchAuditLogs() {
+  auditLogsBody.textContent = '';
+  const trLoading = document.createElement('tr');
+  const tdLoading = document.createElement('td');
+  tdLoading.colSpan = 5;
+  tdLoading.style.textAlign = 'center';
+  tdLoading.style.padding = '20px';
+  tdLoading.style.color = 'var(--text-muted)';
+  tdLoading.textContent = 'Loading audit logs…';
+  trLoading.appendChild(tdLoading);
+  auditLogsBody.appendChild(trLoading);
+
+  try {
+    const r = await fetch('/api/logs', { credentials: 'same-origin' });
+    if (r.status === 401) { window.location.href = '/login'; return; }
+    if (!r.ok) throw new Error('Failed to fetch logs');
+
+    const data = await r.json();
+    const logs = data.logs || [];
+
+    auditLogsBody.textContent = '';
+
+    if (logs.length === 0) {
+      const trEmpty = document.createElement('tr');
+      const tdEmpty = document.createElement('td');
+      tdEmpty.colSpan = 5;
+      tdEmpty.style.textAlign = 'center';
+      tdEmpty.style.padding = '20px';
+      tdEmpty.style.color = 'var(--text-muted)';
+      tdEmpty.textContent = 'No audit log entries recorded yet.';
+      trEmpty.appendChild(tdEmpty);
+      auditLogsBody.appendChild(trEmpty);
+      return;
+    }
+
+    // Render entries safely via DOM nodes (XSS-safe)
+    for (const log of logs) {
+      const tr = document.createElement('tr');
+
+      const tdTime = document.createElement('td');
+      tdTime.textContent = log.timestamp || '--';
+
+      const tdEvent = document.createElement('td');
+      const bEvent = document.createElement('strong');
+      bEvent.textContent = log.event || '--';
+      tdEvent.appendChild(bEvent);
+
+      const tdStatus = document.createElement('td');
+      const spanStatus = document.createElement('span');
+      spanStatus.className = 'badge-status ' + (log.status || '');
+      spanStatus.textContent = log.status || '--';
+      tdStatus.appendChild(spanStatus);
+
+      const tdIp = document.createElement('td');
+      tdIp.textContent = log.ip || '--';
+
+      const tdDetails = document.createElement('td');
+      tdDetails.textContent = (log.details || '') + (log.user_agent ? ` (${log.user_agent.slice(0, 40)})` : '');
+
+      tr.appendChild(tdTime);
+      tr.appendChild(tdEvent);
+      tr.appendChild(tdStatus);
+      tr.appendChild(tdIp);
+      tr.appendChild(tdDetails);
+
+      auditLogsBody.appendChild(tr);
+    }
+  } catch (e) {
+    auditLogsBody.textContent = '';
+    const trErr = document.createElement('tr');
+    const tdErr = document.createElement('td');
+    tdErr.colSpan = 5;
+    tdErr.style.textAlign = 'center';
+    tdErr.style.padding = '20px';
+    tdErr.style.color = 'var(--error)';
+    tdErr.textContent = 'Error loading logs.';
+    trErr.appendChild(tdErr);
+    auditLogsBody.appendChild(trErr);
+  }
+}
+
+if (btnAuditLogs) {
+  btnAuditLogs.addEventListener('click', () => {
+    modalAuditLogs.classList.remove('hidden');
+    fetchAuditLogs();
+  });
+}
+
+if (btnCloseAuditLogs) {
+  btnCloseAuditLogs.addEventListener('click', () => {
+    modalAuditLogs.classList.add('hidden');
+  });
+}
+
+if (modalAuditLogs) {
+  modalAuditLogs.addEventListener('click', (e) => {
+    if (e.target === modalAuditLogs) {
+      modalAuditLogs.classList.add('hidden');
+    }
   });
 }
 
