@@ -313,9 +313,11 @@ async def api_status(claims: dict = Depends(require_auth)):
 
 
 @app.post("/api/adb/reconnect")
-async def api_adb_reconnect(claims: dict = Depends(require_auth_and_csrf)):
+async def api_adb_reconnect(request: Request, claims: dict = Depends(require_auth_and_csrf)):
     """Trigger manual ADB connect to configured ADB_DEVICE_SERIAL or auto-detect."""
+    ip = _get_client_ip(request)
     res = await adb.connect_remote()
+    audit_logger.log_event("ADB_RECONNECT", ip=ip, status="SUCCESS" if res.get("success") else "FAILED", details=res.get("message", ""))
     return res
 
 
@@ -323,76 +325,101 @@ async def api_adb_reconnect(claims: dict = Depends(require_auth_and_csrf)):
 
 @app.post("/api/control/tap")
 async def api_tap(
+    request: Request,
     body: TapRequest,
     claims: dict = Depends(require_auth_and_csrf),
 ):
+    ip = _get_client_ip(request)
     try:
         await adb.tap(body.x, body.y)
+        audit_logger.log_event("TAP", ip=ip, status="SUCCESS", details=f"Tap at ({body.x}, {body.y})")
         return {"ok": True}
     except ADBError as e:
+        audit_logger.log_event("TAP", ip=ip, status="FAILED", details=str(e))
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(e))
 
 
 @app.post("/api/control/swipe")
 async def api_swipe(
+    request: Request,
     body: SwipeRequest,
     claims: dict = Depends(require_auth_and_csrf),
 ):
+    ip = _get_client_ip(request)
     try:
         await adb.swipe(body.x1, body.y1, body.x2, body.y2, body.duration_ms)
+        audit_logger.log_event("SWIPE", ip=ip, status="SUCCESS", details=f"Swipe ({body.x1},{body.y1}) -> ({body.x2},{body.y2})")
         return {"ok": True}
     except ADBError as e:
+        audit_logger.log_event("SWIPE", ip=ip, status="FAILED", details=str(e))
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(e))
 
 
 @app.post("/api/control/keyevent")
 async def api_keyevent(
+    request: Request,
     body: KeyRequest,
     claims: dict = Depends(require_auth_and_csrf),
 ):
+    ip = _get_client_ip(request)
     try:
         await adb.send_keyevent(body.key)
+        audit_logger.log_event("KEYEVENT", ip=ip, status="SUCCESS", details=f"Key '{body.key}'")
         return {"ok": True}
     except ADBError as e:
+        audit_logger.log_event("KEYEVENT", ip=ip, status="FAILED", details=str(e))
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(e))
 
 
 @app.post("/api/control/text")
 async def api_text(
+    request: Request,
     body: TextRequest,
     claims: dict = Depends(require_auth_and_csrf),
 ):
+    ip = _get_client_ip(request)
     try:
         await adb.send_text(body.text)
+        audit_logger.log_event("TEXT", ip=ip, status="SUCCESS", details=f"Typed text: '{body.text[:30]}'")
         return {"ok": True}
     except ADBError as e:
+        audit_logger.log_event("TEXT", ip=ip, status="FAILED", details=str(e))
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(e))
 
 
 @app.post("/api/control/back")
-async def api_back(claims: dict = Depends(require_auth_and_csrf)):
+async def api_back(request: Request, claims: dict = Depends(require_auth_and_csrf)):
+    ip = _get_client_ip(request)
     try:
         await adb.press_back()
+        audit_logger.log_event("NAV_BACK", ip=ip, status="SUCCESS", details="Back button pressed")
         return {"ok": True}
     except ADBError as e:
+        audit_logger.log_event("NAV_BACK", ip=ip, status="FAILED", details=str(e))
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(e))
 
 
 @app.post("/api/control/home")
-async def api_home(claims: dict = Depends(require_auth_and_csrf)):
+async def api_home(request: Request, claims: dict = Depends(require_auth_and_csrf)):
+    ip = _get_client_ip(request)
     try:
         await adb.press_home()
+        audit_logger.log_event("NAV_HOME", ip=ip, status="SUCCESS", details="Home button pressed")
         return {"ok": True}
     except ADBError as e:
+        audit_logger.log_event("NAV_HOME", ip=ip, status="FAILED", details=str(e))
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(e))
 
 
 @app.post("/api/control/recents")
-async def api_recents(claims: dict = Depends(require_auth_and_csrf)):
+async def api_recents(request: Request, claims: dict = Depends(require_auth_and_csrf)):
+    ip = _get_client_ip(request)
     try:
         await adb.press_recents()
+        audit_logger.log_event("NAV_RECENTS", ip=ip, status="SUCCESS", details="Recents button pressed")
         return {"ok": True}
     except ADBError as e:
+        audit_logger.log_event("NAV_RECENTS", ip=ip, status="FAILED", details=str(e))
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(e))
 
 

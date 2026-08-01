@@ -13,7 +13,7 @@ from typing import List, Dict, Any, Optional
 logger = logging.getLogger(__name__)
 
 # Maximum log entries to retain before rotating (dropping oldest)
-MAX_LOG_ENTRIES = 1000
+MAX_LOG_ENTRIES = 10000
 LOG_FILE_PATH = Path(__file__).parent.parent / "audit_logs.jsonl"
 
 
@@ -66,7 +66,7 @@ class AuditLogger:
         entry = {
             "timestamp": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()),
             "time_epoch": int(time.time()),
-            "event": event_type,  # e.g., "LOGIN_SUCCESS", "LOGIN_FAILED", "LOGOUT"
+            "event": event_type,  # e.g., "LOGIN_SUCCESS", "TAP", "SWIPE", "KEY", "TEXT"
             "ip": ip,
             "status": status,    # "SUCCESS", "FAILED", "BLOCKED"
             "details": details or "",
@@ -76,14 +76,14 @@ class AuditLogger:
         entries = self._read_all()
         entries.append(entry)
 
-        # Log Rotation: Keep only the most recent N entries
+        # Log Rotation: Keep only the most recent N entries (10,000)
         if len(entries) > self.max_entries:
             entries = entries[-self.max_entries:]
 
         self._write_all(entries)
         return entry
 
-    def get_logs(self, limit: int = 200) -> List[Dict[str, Any]]:
+    def get_logs(self, limit: int = 500) -> List[Dict[str, Any]]:
         """Return the most recent audit logs in reverse chronological order."""
         entries = self._read_all()
         entries.reverse()  # Newest first
