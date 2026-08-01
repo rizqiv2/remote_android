@@ -224,6 +224,21 @@
           </table>
         </div>
       </div>
+      <div class="modal-footer">
+        <div class="pagination-info">
+          <span id="logsPageInfo">Page 1 of 1 (0 total logs)</span>
+        </div>
+        <div class="pagination-controls">
+          <label for="logsPageSize" style="font-size:0.75rem; color:var(--text-muted);">Rows per page:</label>
+          <select id="logsPageSize" class="pagination-select">
+            <option value="25">25</option>
+            <option value="50" selected>50</option>
+            <option value="100">100</option>
+          </select>
+          <button class="nav-btn btn-page" id="btnLogsPrev" disabled title="Previous page">◀ Prev</button>
+          <button class="nav-btn btn-page" id="btnLogsNext" disabled title="Next page">Next ▶</button>
+        </div>
+      </div>
     </div>
   </div>
 

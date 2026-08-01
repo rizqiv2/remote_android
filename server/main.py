@@ -280,9 +280,13 @@ async def api_logout(request: Request, claims: dict = Depends(require_auth)):
 
 
 @app.get("/api/logs")
-async def api_get_logs(claims: dict = Depends(require_auth)):
-    """Return immutable rotating audit logs (read-only)."""
-    return {"logs": audit_logger.get_logs(limit=200)}
+async def api_get_logs(
+    page: int = 1,
+    page_size: int = 50,
+    claims: dict = Depends(require_auth),
+):
+    """Return paginated immutable rotating audit logs (read-only)."""
+    return audit_logger.get_logs(page=page, page_size=page_size)
 
 
 # ─── Routes: Device Status ────────────────────────────────────────────────────

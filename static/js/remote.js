@@ -50,7 +50,16 @@ const btnAuditLogs      = document.getElementById('btnAuditLogs');
 const modalAuditLogs    = document.getElementById('modalAuditLogs');
 const btnCloseAuditLogs = document.getElementById('btnCloseAuditLogs');
 const auditLogsBody     = document.getElementById('auditLogsBody');
+const btnLogsPrev       = document.getElementById('btnLogsPrev');
+const btnLogsNext       = document.getElementById('btnLogsNext');
+const logsPageInfo      = document.getElementById('logsPageInfo');
+const logsPageSize      = document.getElementById('logsPageSize');
 const touchRipple       = document.getElementById('touchRipple');
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let currentLogsPage = 1;
+let currentLogsPageSize = 50;
+let totalLogsPages = 1;
 
 // ── State ─────────────────────────────────────────────────────────────────────
 let ws = null;
@@ -405,7 +414,10 @@ if (btnAdbReconnect) {
 
 // ── Audit Logs Modal ─────────────────────────────────────────────────────────
 
-async function fetchAuditLogs() {
+async function fetchAuditLogs(page = currentLogsPage, pageSize = currentLogsPageSize) {
+  currentLogsPage = page;
+  currentLogsPageSize = pageSize;
+
   auditLogsBody.textContent = '';
   const trLoading = document.createElement('tr');
   const tdLoading = document.createElement('td');
@@ -418,12 +430,20 @@ async function fetchAuditLogs() {
   auditLogsBody.appendChild(trLoading);
 
   try {
-    const r = await fetch('/api/logs', { credentials: 'same-origin' });
+    const r = await fetch(`/api/logs?page=${currentLogsPage}&page_size=${currentLogsPageSize}`, { credentials: 'same-origin' });
     if (r.status === 401) { window.location.href = '/login'; return; }
     if (!r.ok) throw new Error('Failed to fetch logs');
 
     const data = await r.json();
     const logs = data.logs || [];
+    const total = data.total || 0;
+    totalLogsPages = data.total_pages || 1;
+    currentLogsPage = data.page || 1;
+
+    // Update pagination controls
+    logsPageInfo.textContent = `Page ${currentLogsPage} of ${totalLogsPages} (${total.toLocaleString()} total logs)`;
+    btnLogsPrev.disabled = currentLogsPage <= 1;
+    btnLogsNext.disabled = currentLogsPage >= totalLogsPages;
 
     auditLogsBody.textContent = '';
 
@@ -462,7 +482,7 @@ async function fetchAuditLogs() {
       tdIp.textContent = log.ip || '--';
 
       const tdDetails = document.createElement('td');
-      tdDetails.textContent = (log.details || '') + (log.user_agent ? ` (${log.user_agent.slice(0, 40)})` : '');
+      tdDetails.textContent = (log.details || '') + (log.user_agent ? ` (${log.user_agent.slice(0, 35)})` : '');
 
       tr.appendChild(tdTime);
       tr.appendChild(tdEvent);
@@ -489,7 +509,7 @@ async function fetchAuditLogs() {
 if (btnAuditLogs) {
   btnAuditLogs.addEventListener('click', () => {
     modalAuditLogs.classList.remove('hidden');
-    fetchAuditLogs();
+    fetchAuditLogs(1, currentLogsPageSize);
   });
 }
 
@@ -504,6 +524,29 @@ if (modalAuditLogs) {
     if (e.target === modalAuditLogs) {
       modalAuditLogs.classList.add('hidden');
     }
+  });
+}
+
+if (btnLogsPrev) {
+  btnLogsPrev.addEventListener('click', () => {
+    if (currentLogsPage > 1) {
+      fetchAuditLogs(currentLogsPage - 1, currentLogsPageSize);
+    }
+  });
+}
+
+if (btnLogsNext) {
+  btnLogsNext.addEventListener('click', () => {
+    if (currentLogsPage < totalLogsPages) {
+      fetchAuditLogs(currentLogsPage + 1, currentLogsPageSize);
+    }
+  });
+}
+
+if (logsPageSize) {
+  logsPageSize.addEventListener('change', (e) => {
+    const newSize = parseInt(e.target.value, 10) || 50;
+    fetchAuditLogs(1, newSize);
   });
 }
 

@@ -83,11 +83,27 @@ class AuditLogger:
         self._write_all(entries)
         return entry
 
-    def get_logs(self, limit: int = 500) -> List[Dict[str, Any]]:
-        """Return the most recent audit logs in reverse chronological order."""
+    def get_logs(self, page: int = 1, page_size: int = 50) -> Dict[str, Any]:
+        """Return paginated audit logs in reverse chronological order."""
+        import math
         entries = self._read_all()
         entries.reverse()  # Newest first
-        return entries[:limit]
+
+        total = len(entries)
+        page_size = max(1, min(200, page_size))
+        total_pages = math.ceil(total / page_size) if total > 0 else 1
+        page = max(1, min(page, total_pages))
+
+        start = (page - 1) * page_size
+        end = start + page_size
+
+        return {
+            "logs": entries[start:end],
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": total_pages,
+        }
 
 
 # Singleton instance
