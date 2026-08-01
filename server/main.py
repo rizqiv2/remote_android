@@ -59,6 +59,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+
+def _get_client_ip(request: Request) -> str:
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
 # ─── Screen Streamer ──────────────────────────────────────────────────────────
 
 streamer = ScreenStreamer(adb)
