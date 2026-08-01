@@ -58,17 +58,9 @@ if grep -q "your_jwt_secret_here" .env; then
 fi
 
 # Set password
-if grep -q "your_bcrypt_hash_here" .env; then
+if grep -q "your_bcrypt_hash_here" .env || grep -q "\\\$2b" .env; then
   echo ""
-  echo "🔐  Set your login password:"
-  echo -n "    Enter password: "
-  read -rs PASSWORD
-  echo ""
-  HASH=$(python3 -c "import bcrypt; print(bcrypt.hashpw(b'$PASSWORD', bcrypt.gensalt(12)).decode())")
-  # Escape hash for sed (bcrypt hash contains $ and /)
-  ESCAPED_HASH=$(printf '%s\n' "$HASH" | sed 's/[[\.*^$()+?{|]/\\&/g; s|/|\\/|g; s/\$/\\\$/g')
-  sed -i "s|your_bcrypt_hash_here|$ESCAPED_HASH|" .env
-  echo "✅  Password set"
+  python3 set_password.py
 fi
 
 echo ""

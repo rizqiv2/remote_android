@@ -33,9 +33,10 @@ class Settings:
     # ADB
     ADB_DEVICE_SERIAL: str = os.getenv("ADB_DEVICE_SERIAL", "")
     SCREEN_FPS: int = max(1, min(30, int(os.getenv("SCREEN_FPS", "10"))))
+    AUTO_RECONNECT_ADB: bool = os.getenv("AUTO_RECONNECT_ADB", "true").lower() in ("true", "1", "yes")
 
     # Server
-    SERVER_HOST: str = os.getenv("SERVER_HOST", "127.0.0.1")
+    SERVER_HOST: str = os.getenv("SERVER_HOST", "0.0.0.0")
     SERVER_PORT: int = int(os.getenv("SERVER_PORT", "8080"))
 
     # Static files path

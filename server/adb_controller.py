@@ -88,6 +88,25 @@ class ADBController:
             raise ADBError(stderr.decode(errors="replace").strip())
         return stdout
 
+    # ── Connection Management ────────────────────────────────────────────────
+
+    async def connect_remote(self, target: str = "") -> dict:
+        """
+        Run `adb connect <target>`.
+        If target is empty, uses settings.ADB_DEVICE_SERIAL.
+        """
+        serial = target or settings.ADB_DEVICE_SERIAL
+        if not serial or not (":" in serial or "." in serial):
+            return {"success": False, "message": "No IP:PORT specified in ADB_DEVICE_SERIAL"}
+
+        try:
+            out = await self._adb_async("connect", serial, timeout=8)
+            msg = out.decode(errors="replace").strip()
+            connected = "connected to" in msg.lower() or "already connected" in msg.lower()
+            return {"success": connected, "message": msg}
+        except ADBError as e:
+            return {"success": False, "message": str(e)}
+
     # ── Device Info ─────────────────────────────────────────────────────────
 
     def get_connected_devices(self) -> list[str]:
@@ -148,20 +167,24 @@ class ADBController:
         Capture current screen as JPEG bytes.
         screencap returns PNG; we convert to JPEG in Python for bandwidth savings.
         """
-        from PIL import Image
+        from PIL import Image, ImageFile
+        ImageFile.LOAD_TRUNCATED_IMAGES = True
 
         png_data = await self._adb_async("exec-out", "screencap", "-p", timeout=8)
-        if not png_data:
-            raise ADBError("screencap returned no data")
+        if not png_data or len(png_data) < 100:
+            raise ADBError("screencap returned incomplete data")
 
-        img = Image.open(io.BytesIO(png_data))
-        # Convert RGBA (Android screencap includes alpha) → RGB
-        if img.mode in ("RGBA", "P"):
-            img = img.convert("RGB")
+        try:
+            img = Image.open(io.BytesIO(png_data))
+            # Convert RGBA (Android screencap includes alpha) → RGB
+            if img.mode in ("RGBA", "P"):
+                img = img.convert("RGB")
 
-        buf = io.BytesIO()
-        img.save(buf, format="JPEG", quality=quality, optimize=False)
-        return buf.getvalue()
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG", quality=quality, optimize=False)
+            return buf.getvalue()
+        except Exception as e:
+            raise ADBError(f"Failed to process screencap frame: {e}")
 
     # ── Input Control ────────────────────────────────────────────────────────
 

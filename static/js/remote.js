@@ -45,6 +45,7 @@ const textInput         = document.getElementById('textInput');
 const btnLogout         = document.getElementById('btnLogout');
 const btnFullscreen     = document.getElementById('btnFullscreen');
 const btnReconnect      = document.getElementById('btnReconnect');
+const btnAdbReconnect   = document.getElementById('btnAdbReconnect');
 const touchRipple       = document.getElementById('touchRipple');
 
 // ── State ─────────────────────────────────────────────────────────────────────
@@ -379,6 +380,24 @@ btnReconnect.addEventListener('click', () => {
   if (ws) { ws.onclose = null; ws.close(); ws = null; }
   connectWs();
 });
+
+if (btnAdbReconnect) {
+  btnAdbReconnect.addEventListener('click', async () => {
+    btnAdbReconnect.textContent = '⏳ Connecting...';
+    btnAdbReconnect.disabled = true;
+    try {
+      const res = await apiPost('/api/adb/reconnect');
+      const data = await res?.json();
+      btnAdbReconnect.textContent = data?.success ? '✅ Connected' : '❌ Failed';
+    } catch {
+      btnAdbReconnect.textContent = '❌ Error';
+    }
+    setTimeout(() => {
+      btnAdbReconnect.textContent = '🔄 Reconnect ADB';
+      btnAdbReconnect.disabled = false;
+    }, 3000);
+  });
+}
 
 // ── Status Polling ─────────────────────────────────────────────────────────────
 

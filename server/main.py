@@ -63,17 +63,30 @@ streamer = ScreenStreamer(adb)
 
 # ─── Lifespan ─────────────────────────────────────────────────────────────────
 
+async def adb_keepalive_loop():
+    """Background task to auto-reconnect ADB over Tailscale/IP if disconnected."""
+    while True:
+        await asyncio.sleep(10)
+        if settings.AUTO_RECONNECT_ADB and settings.ADB_DEVICE_SERIAL:
+            if not adb.is_connected():
+                logger.info(f"ADB disconnected. Attempting auto-reconnect to {settings.ADB_DEVICE_SERIAL}...")
+                res = await adb.connect_remote()
+                logger.info(f"ADB auto-reconnect result: {res['message']}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Start background screen-capture task on startup."""
-    task = asyncio.create_task(streamer.run())
+    """Start background tasks on startup."""
+    task_stream = asyncio.create_task(streamer.run())
+    task_keepalive = asyncio.create_task(adb_keepalive_loop())
     logger.info(f"Server ready on http://{settings.SERVER_HOST}:{settings.SERVER_PORT}")
     yield
     streamer.stop()
-    task.cancel()
+    task_stream.cancel()
+    task_keepalive.cancel()
     try:
-        await task
-    except asyncio.CancelledError:
+        await asyncio.gather(task_stream, task_keepalive)
+    except (asyncio.CancelledError, Exception):
         pass
 
 
@@ -271,6 +284,13 @@ async def api_status(claims: dict = Depends(require_auth)):
     }
 
 
+@app.post("/api/adb/reconnect")
+async def api_adb_reconnect(claims: dict = Depends(require_auth_and_csrf)):
+    """Trigger manual ADB connect to configured ADB_DEVICE_SERIAL or auto-detect."""
+    res = await adb.connect_remote()
+    return res
+
+
 # ─── Routes: Control API ──────────────────────────────────────────────────────
 
 @app.post("/api/control/tap")
@@ -323,20 +343,29 @@ async def api_text(
 
 @app.post("/api/control/back")
 async def api_back(claims: dict = Depends(require_auth_and_csrf)):
-    await adb.press_back()
-    return {"ok": True}
+    try:
+        await adb.press_back()
+        return {"ok": True}
+    except ADBError as e:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(e))
 
 
 @app.post("/api/control/home")
 async def api_home(claims: dict = Depends(require_auth_and_csrf)):
-    await adb.press_home()
-    return {"ok": True}
+    try:
+        await adb.press_home()
+        return {"ok": True}
+    except ADBError as e:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(e))
 
 
 @app.post("/api/control/recents")
 async def api_recents(claims: dict = Depends(require_auth_and_csrf)):
-    await adb.press_recents()
-    return {"ok": True}
+    try:
+        await adb.press_recents()
+        return {"ok": True}
+    except ADBError as e:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(e))
 
 
 # ─── WebSocket: Screen Stream ─────────────────────────────────────────────────
