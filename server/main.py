@@ -75,14 +75,19 @@ streamer = ScreenStreamer(adb)
 # ─── Lifespan ─────────────────────────────────────────────────────────────────
 
 async def adb_keepalive_loop():
-    """Background task to auto-reconnect ADB over Tailscale/IP if disconnected."""
+    """Background task to auto-reconnect ADB over Tailscale/IP or auto-scan port if disconnected."""
     while True:
         await asyncio.sleep(10)
-        if settings.AUTO_RECONNECT_ADB and settings.ADB_DEVICE_SERIAL:
+        if settings.AUTO_RECONNECT_ADB:
             if not adb.is_connected():
-                logger.info(f"ADB disconnected. Attempting auto-reconnect to {settings.ADB_DEVICE_SERIAL}...")
-                res = await adb.connect_remote()
-                logger.info(f"ADB auto-reconnect result: {res['message']}")
+                logger.info("ADB disconnected. Attempting smart reconnect...")
+                res = await adb.connect_remote(force_disconnect=True)
+                if not res.get("success"):
+                    serial = settings.ADB_DEVICE_SERIAL
+                    if not serial or "localhost" in serial or "127.0.0.1" in serial:
+                        logger.info("Auto-reconnect failed. Initiating Wireless ADB port scan...")
+                        res = await adb.scan_and_connect()
+                logger.info(f"ADB keepalive result: {res.get('message')}")
 
 
 @asynccontextmanager
@@ -182,6 +187,11 @@ class KeyRequest(BaseModel):
 
 class TextRequest(BaseModel):
     text: str = Field(..., max_length=500)
+
+
+class ADBReconnectRequest(BaseModel):
+    target_serial: Optional[str] = Field(default=None, max_length=128)
+    force_scan: bool = Field(default=False)
 
 
 # ─── Routes: Pages ────────────────────────────────────────────────────────────
@@ -297,6 +307,7 @@ async def api_status(claims: dict = Depends(require_auth)):
     if not connected:
         return {
             "connected": False,
+            "serial": settings.ADB_DEVICE_SERIAL,
             "model": None,
             "battery": None,
             "screen_width": None,
@@ -307,6 +318,7 @@ async def api_status(claims: dict = Depends(require_auth)):
     w, h = adb.get_screen_size()
     return {
         "connected": True,
+        "serial": settings.ADB_DEVICE_SERIAL,
         "model": adb.get_device_model(),
         "battery": adb.get_battery_level(),
         "screen_width": w,
@@ -317,11 +329,51 @@ async def api_status(claims: dict = Depends(require_auth)):
 
 
 @app.post("/api/adb/reconnect")
-async def api_adb_reconnect(request: Request, claims: dict = Depends(require_auth_and_csrf)):
-    """Trigger manual ADB connect to configured ADB_DEVICE_SERIAL or auto-detect."""
+async def api_adb_reconnect(
+    request: Request,
+    body: Optional[ADBReconnectRequest] = None,
+    claims: dict = Depends(require_auth_and_csrf),
+):
+    """
+    Trigger manual ADB connect or port auto-scan.
+    Accepts optional target_serial and force_scan parameters.
+    """
     ip = _get_client_ip(request)
-    res = await adb.connect_remote()
-    audit_logger.log_event("ADB_RECONNECT", ip=ip, status="SUCCESS" if res.get("success") else "FAILED", details=res.get("message", ""))
+    target = body.target_serial.strip() if (body and body.target_serial) else ""
+    force_scan = body.force_scan if body else False
+
+    if force_scan:
+        res = await adb.scan_and_connect(host=target.split(":")[0] if ":" in target else "127.0.0.1")
+    elif target:
+        res = await adb.connect_remote(target, force_disconnect=True)
+    else:
+        res = await adb.connect_remote(force_disconnect=True)
+        if not res.get("success") and ("localhost" in settings.ADB_DEVICE_SERIAL or "127.0.0.1" in settings.ADB_DEVICE_SERIAL or not settings.ADB_DEVICE_SERIAL):
+            res = await adb.scan_and_connect()
+
+    audit_logger.log_event(
+        "ADB_RECONNECT",
+        ip=ip,
+        status="SUCCESS" if res.get("success") else "FAILED",
+        details=res.get("message", ""),
+    )
+    return res
+
+
+@app.post("/api/adb/scan")
+async def api_adb_scan(
+    request: Request,
+    claims: dict = Depends(require_auth_and_csrf),
+):
+    """Perform a deep scan of Wireless ADB ports on localhost (30000–50000)."""
+    ip = _get_client_ip(request)
+    res = await adb.scan_and_connect()
+    audit_logger.log_event(
+        "ADB_SCAN",
+        ip=ip,
+        status="SUCCESS" if res.get("success") else "FAILED",
+        details=res.get("message", ""),
+    )
     return res
 
 

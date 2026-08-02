@@ -46,6 +46,11 @@ const btnLogout         = document.getElementById('btnLogout');
 const btnFullscreen     = document.getElementById('btnFullscreen');
 const btnReconnect      = document.getElementById('btnReconnect');
 const btnAdbReconnect   = document.getElementById('btnAdbReconnect');
+const btnAdbScan        = document.getElementById('btnAdbScan');
+const connSerial        = document.getElementById('connSerial');
+const customSerialInput = document.getElementById('customSerialInput');
+const btnSetSerial      = document.getElementById('btnSetSerial');
+const adbFeedbackMsg    = document.getElementById('adbFeedbackMsg');
 const btnAuditLogs      = document.getElementById('btnAuditLogs');
 const modalAuditLogs    = document.getElementById('modalAuditLogs');
 const btnCloseAuditLogs = document.getElementById('btnCloseAuditLogs');
@@ -394,21 +399,94 @@ btnReconnect.addEventListener('click', () => {
   connectWs();
 });
 
+function showAdbFeedback(msg, isError = false) {
+  if (!adbFeedbackMsg) return;
+  adbFeedbackMsg.textContent = msg;
+  adbFeedbackMsg.style.color = isError ? '#f87171' : '#34d399';
+  adbFeedbackMsg.style.display = 'block';
+  setTimeout(() => {
+    if (adbFeedbackMsg) adbFeedbackMsg.style.display = 'none';
+  }, 6000);
+}
+
 if (btnAdbReconnect) {
   btnAdbReconnect.addEventListener('click', async () => {
-    btnAdbReconnect.textContent = '⏳ Connecting...';
+    btnAdbReconnect.textContent = '⏳ Reconnecting…';
     btnAdbReconnect.disabled = true;
     try {
       const res = await apiPost('/api/adb/reconnect');
       const data = await res?.json();
-      btnAdbReconnect.textContent = data?.success ? '✅ Connected' : '❌ Failed';
+      if (data?.success) {
+        showAdbFeedback(data.message || 'ADB Connected!');
+        btnAdbReconnect.textContent = '✅ Connected';
+        pollStatus();
+      } else {
+        showAdbFeedback(data?.message || 'Reconnection failed', true);
+        btnAdbReconnect.textContent = '❌ Failed';
+      }
     } catch {
+      showAdbFeedback('Network error during reconnect', true);
       btnAdbReconnect.textContent = '❌ Error';
     }
     setTimeout(() => {
-      btnAdbReconnect.textContent = '🔄 Reconnect ADB';
+      btnAdbReconnect.textContent = '🔄 Reconnect';
       btnAdbReconnect.disabled = false;
     }, 3000);
+  });
+}
+
+if (btnAdbScan) {
+  btnAdbScan.addEventListener('click', async () => {
+    btnAdbScan.textContent = '⏳ Scanning…';
+    btnAdbScan.disabled = true;
+    showAdbFeedback('Scanning Wireless ADB ports (30000–50000)…');
+    try {
+      const res = await apiPost('/api/adb/scan');
+      const data = await res?.json();
+      if (data?.success) {
+        showAdbFeedback(data.message || 'Auto-scan succeeded!');
+        btnAdbScan.textContent = '✅ Found';
+        pollStatus();
+      } else {
+        showAdbFeedback(data?.message || 'No Wireless ADB port found', true);
+        btnAdbScan.textContent = '❌ Not Found';
+      }
+    } catch {
+      showAdbFeedback('Error scanning ports', true);
+      btnAdbScan.textContent = '❌ Error';
+    }
+    setTimeout(() => {
+      btnAdbScan.textContent = '🔍 Auto-Scan';
+      btnAdbScan.disabled = false;
+    }, 3000);
+  });
+}
+
+if (btnSetSerial && customSerialInput) {
+  const handleSetSerial = async () => {
+    const target = customSerialInput.value.trim();
+    if (!target) return;
+    btnSetSerial.disabled = true;
+    showAdbFeedback(`Connecting to ${target}…`);
+    try {
+      const res = await apiPost('/api/adb/reconnect', { target_serial: target });
+      const data = await res?.json();
+      if (data?.success) {
+        showAdbFeedback(data.message || `Connected to ${target}!`);
+        customSerialInput.value = '';
+        pollStatus();
+      } else {
+        showAdbFeedback(data?.message || `Failed to connect to ${target}`, true);
+      }
+    } catch {
+      showAdbFeedback('Connection error', true);
+    }
+    btnSetSerial.disabled = false;
+  };
+
+  btnSetSerial.addEventListener('click', handleSetSerial);
+  customSerialInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); handleSetSerial(); }
   });
 }
 
@@ -559,6 +637,7 @@ async function pollStatus() {
     if (!r.ok) return;
 
     const data = await r.json();
+    if (connSerial) connSerial.textContent = data.serial || '--';
 
     if (data.connected) {
       // Safe text rendering — never innerHTML
@@ -572,7 +651,7 @@ async function pollStatus() {
       deviceHeight = data.screen_height || deviceHeight;
     } else {
       deviceName.textContent = 'No device';
-      deviceMeta.textContent = 'Check ADB connection';
+      deviceMeta.textContent = data.serial ? `Disconnected (${data.serial})` : 'Check ADB connection';
     }
   } catch {
     // Network error — silently ignore, will retry

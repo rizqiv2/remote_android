@@ -7,7 +7,10 @@ Touch coordinates are always clamped to device dimensions.
 """
 import asyncio
 import io
+import socket
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from typing import Optional
 
 from .config import settings
@@ -53,6 +56,33 @@ class ADBController:
         self._screen_width: Optional[int] = None
         self._screen_height: Optional[int] = None
 
+    def set_serial(self, serial: str) -> None:
+        """Update active device serial in settings and local args."""
+        settings.ADB_DEVICE_SERIAL = serial
+        self._serial_args = ["-s", serial] if serial else []
+
+    def update_env_file(self, serial: str) -> bool:
+        """Persist new ADB_DEVICE_SERIAL to .env file if present."""
+        env_path = Path(__file__).parent.parent / ".env"
+        if not env_path.exists():
+            return False
+        try:
+            lines = env_path.read_text(encoding="utf-8").splitlines()
+            new_lines = []
+            found = False
+            for line in lines:
+                if line.startswith("ADB_DEVICE_SERIAL="):
+                    new_lines.append(f"ADB_DEVICE_SERIAL={serial}")
+                    found = True
+                else:
+                    new_lines.append(line)
+            if not found:
+                new_lines.append(f"ADB_DEVICE_SERIAL={serial}")
+            env_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+            return True
+        except Exception:
+            return False
+
     def _adb(self, *args: str, timeout: int = 10) -> bytes:
         """Run an adb command synchronously, return stdout bytes."""
         cmd = ["adb"] + self._serial_args + list(args)
@@ -90,38 +120,214 @@ class ADBController:
 
     # ── Connection Management ────────────────────────────────────────────────
 
-    async def connect_remote(self, target: str = "") -> dict:
+    def get_device_states(self) -> dict[str, str]:
+        """
+        Run `adb devices` without -s serial filter to return dict of {serial: state}.
+        """
+        try:
+            cmd = ["adb", "devices"]
+            res = subprocess.run(cmd, capture_output=True, timeout=5, check=False)
+            if res.returncode != 0:
+                return {}
+            out = res.stdout.decode(errors="replace").strip()
+            lines = out.splitlines()[1:]
+            states = {}
+            for l in lines:
+                parts = l.strip().split()
+                if len(parts) >= 2:
+                    states[parts[0]] = parts[1]
+            return states
+        except Exception:
+            return {}
+
+    async def disconnect_remote(self, target: str = "") -> dict:
+        """Run `adb disconnect <target>` or `adb disconnect` to clear stale entries."""
+        cmd = ["disconnect", target] if target else ["disconnect"]
+        try:
+            out = await self._adb_async(*cmd, timeout=5)
+            return {"success": True, "message": out.decode(errors="replace").strip()}
+        except ADBError as e:
+            return {"success": False, "message": str(e)}
+
+    async def kill_and_restart_server(self) -> None:
+        """Restart local ADB server daemon if unresponsive or stuck in offline loop."""
+        try:
+            subprocess.run(["adb", "kill-server"], capture_output=True, timeout=5, check=False)
+            await asyncio.sleep(0.5)
+            subprocess.run(["adb", "start-server"], capture_output=True, timeout=5, check=False)
+        except Exception:
+            pass
+
+    async def connect_remote(self, target: str = "", force_disconnect: bool = True) -> dict:
         """
         Run `adb connect <target>`.
-        If target is empty, uses settings.ADB_DEVICE_SERIAL.
+        - Purges stale offline socket before connecting if force_disconnect=True.
+        - Verifies device state is 'device' (not 'offline').
+        - Auto-restarts adb server if target stays offline.
         """
         serial = target or settings.ADB_DEVICE_SERIAL
         if not serial or not (":" in serial or "." in serial):
             return {"success": False, "message": "No IP:PORT specified in ADB_DEVICE_SERIAL"}
 
+        self.set_serial(serial)
+
+        # 1. Disconnect stale socket entry first if requested
+        if force_disconnect:
+            await self.disconnect_remote(serial)
+            await asyncio.sleep(0.2)
+
         try:
             out = await self._adb_async("connect", serial, timeout=8)
             msg = out.decode(errors="replace").strip()
+
+            # Verify actual device state from `adb devices`
+            states = self.get_device_states()
+            state = states.get(serial, "")
+
+            if state == "device":
+                self.update_env_file(serial)
+                return {"success": True, "message": f"Connected to {serial}", "serial": serial}
+
+            if state == "offline":
+                # Disconnect and restart ADB server to clear stale offline socket
+                await self.disconnect_remote(serial)
+                await self.kill_and_restart_server()
+                # Try connect once more
+                out_retry = await self._adb_async("connect", serial, timeout=8)
+                states_retry = self.get_device_states()
+                if states_retry.get(serial) == "device":
+                    self.update_env_file(serial)
+                    return {"success": True, "message": f"Connected to {serial} after reset", "serial": serial}
+                return {"success": False, "message": f"Device at {serial} is offline. Please check Wireless Debugging on device.", "serial": serial}
+
             connected = "connected to" in msg.lower() or "already connected" in msg.lower()
-            return {"success": connected, "message": msg}
+            if connected and state == "device":
+                self.update_env_file(serial)
+                return {"success": True, "message": msg, "serial": serial}
+
+            return {"success": False, "message": msg or f"Failed to connect to {serial} (state: {state or 'unknown'})", "serial": serial}
         except ADBError as e:
-            return {"success": False, "message": str(e)}
+            return {"success": False, "message": str(e), "serial": serial}
+
+    def _test_tcp_port(self, host: str, port: int, timeout: float = 0.005) -> bool:
+        """Fast TCP connect check for a specific port."""
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(timeout)
+                return s.connect_ex((host, port)) == 0
+        except Exception:
+            return False
+
+    async def scan_and_connect(
+        self,
+        host: str = "127.0.0.1",
+        port_start: int = 30000,
+        port_end: int = 50000,
+    ) -> dict:
+        """
+        Scan TCP ports on host (e.g. 127.0.0.1 / localhost) in range port_start..port_end
+        to discover active Wireless ADB server and auto-connect.
+        """
+        # Check if any connected device is already online
+        current_devices = self.get_connected_devices()
+        if current_devices:
+            dev = current_devices[0]
+            self.set_serial(dev)
+            return {"success": True, "message": f"Already connected to active device {dev}", "serial": dev}
+
+        check_host = "127.0.0.1" if host.lower() in ("localhost", "127.0.0.1") else host
+        loop = asyncio.get_running_loop()
+        ports_to_check = list(range(port_start, port_end + 1))
+        open_ports: list[int] = []
+
+        def probe_chunk(ports: list[int]) -> list[int]:
+            found = []
+            for p in ports:
+                if self._test_tcp_port(check_host, p, timeout=0.004):
+                    found.append(p)
+            return found
+
+        chunk_size = 1000
+        chunks = [ports_to_check[i : i + chunk_size] for i in range(0, len(ports_to_check), chunk_size)]
+
+        with ThreadPoolExecutor(max_workers=16) as executor:
+            tasks = [loop.run_in_executor(executor, probe_chunk, chunk) for chunk in chunks]
+            results = await asyncio.gather(*tasks)
+
+        for res_ports in results:
+            open_ports.extend(res_ports)
+
+        if not open_ports:
+            return {
+                "success": False,
+                "message": f"No open TCP ports found on {host} in range {port_start}–{port_end}. Ensure Wireless Debugging is enabled.",
+                "serial": settings.ADB_DEVICE_SERIAL,
+            }
+
+        # Probe each open port with `adb connect`
+        for port in open_ports:
+            target_serial = f"{host}:{port}" if host != "127.0.0.1" else f"localhost:{port}"
+            res = await self.connect_remote(target_serial, force_disconnect=True)
+            if res.get("success"):
+                self.update_env_file(target_serial)
+                return {
+                    "success": True,
+                    "message": f"Successfully auto-discovered and connected to Wireless ADB on {target_serial}",
+                    "serial": target_serial,
+                }
+
+        return {
+            "success": False,
+            "message": f"Found open ports ({open_ports[:5]}), but ADB handshake failed.",
+            "serial": settings.ADB_DEVICE_SERIAL,
+        }
 
     # ── Device Info ─────────────────────────────────────────────────────────
 
+    def purge_offline_devices_sync(self) -> None:
+        """Synchronously purge any 'offline' or 'unauthorized' devices listed in adb devices."""
+        states = self.get_device_states()
+        for serial, state in states.items():
+            if state in ("offline", "unauthorized"):
+                try:
+                    subprocess.run(["adb", "disconnect", serial], capture_output=True, timeout=3, check=False)
+                except Exception:
+                    pass
+
+    async def purge_offline_devices(self) -> None:
+        """Asynchronously purge any 'offline' or 'unauthorized' devices listed in adb devices."""
+        states = self.get_device_states()
+        for serial, state in states.items():
+            if state in ("offline", "unauthorized"):
+                await self.disconnect_remote(serial)
+
     def get_connected_devices(self) -> list[str]:
-        out = self._adb("devices").decode(errors="replace")
-        lines = out.strip().splitlines()[1:]  # skip "List of devices attached"
-        return [l.split()[0] for l in lines if l.strip() and "device" in l]
+        states = self.get_device_states()
+        return [s for s, state in states.items() if state == "device"]
 
     def is_connected(self) -> bool:
         try:
+            self.purge_offline_devices_sync()
             devices = self.get_connected_devices()
-            if settings.ADB_DEVICE_SERIAL:
-                return settings.ADB_DEVICE_SERIAL in devices
-            return len(devices) > 0
+            if not devices:
+                return False
+            if settings.ADB_DEVICE_SERIAL and settings.ADB_DEVICE_SERIAL in devices:
+                return True
+            # Auto-adopt any active connected device if configured serial is outdated
+            if len(devices) > 0:
+                self.set_serial(devices[0])
+                self.update_env_file(devices[0])
+                return True
+            return False
         except ADBError:
             return False
+
+    async def wake_screen(self) -> None:
+        """Send KEYCODE_WAKEUP (224) to turn screen on if sleeping."""
+        try:
+            await self._adb_async("shell", "input", "keyevent", "224", timeout=3)
+        except Exception:
+            pass
 
     def get_screen_size(self) -> tuple[int, int]:
         """Returns (width, height). Cached after first call."""
@@ -170,7 +376,16 @@ class ADBController:
         from PIL import Image, ImageFile
         ImageFile.LOAD_TRUNCATED_IMAGES = True
 
-        png_data = await self._adb_async("exec-out", "screencap", "-p", timeout=8)
+        # Ensure active connected device is bound
+        if not self.is_connected():
+            raise ADBError("No active ADB device connected")
+
+        try:
+            png_data = await self._adb_async("exec-out", "screencap", "-p", timeout=8)
+        except ADBError as e:
+            await self.wake_screen()
+            raise e
+
         if not png_data or len(png_data) < 100:
             raise ADBError("screencap returned incomplete data")
 

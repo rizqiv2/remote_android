@@ -174,8 +174,12 @@
 
       <!-- Connection info -->
       <section class="panel-section">
-        <h2 class="panel-label">Connection</h2>
+        <h2 class="panel-label">Connection & ADB</h2>
         <div class="conn-info">
+          <div class="conn-row">
+            <span class="conn-key">ADB Serial</span>
+            <span class="conn-val" id="connSerial" style="font-size:0.75rem; max-width:110px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">--</span>
+          </div>
           <div class="conn-row">
             <span class="conn-key">Screen</span>
             <span class="conn-val" id="connResolution">--</span>
@@ -184,9 +188,30 @@
             <span class="conn-key">Viewers</span>
             <span class="conn-val" id="connViewers">--</span>
           </div>
-          <button class="nav-btn" id="btnAdbReconnect" style="width:100%; margin-top:10px; font-size:0.75rem;" title="Reconnect ADB">
-            🔄 Reconnect ADB
-          </button>
+
+          <div style="display:flex; gap:6px; margin-top:10px;">
+            <button class="nav-btn" id="btnAdbReconnect" style="flex:1; font-size:0.75rem;" title="Smart Reconnect ADB">
+              🔄 Reconnect
+            </button>
+            <button class="nav-btn" id="btnAdbScan" style="flex:1; font-size:0.75rem;" title="Auto-scan Wireless ADB ports">
+              🔍 Auto-Scan
+            </button>
+          </div>
+
+          <div class="text-send-row" style="margin-top:8px;">
+            <input
+              type="text"
+              id="customSerialInput"
+              class="text-field"
+              placeholder="e.g. localhost:41235"
+              style="font-size:0.75rem;"
+              autocomplete="off"
+            />
+            <button class="btn-send" id="btnSetSerial" style="padding:6px 10px; font-size:0.75rem;" title="Set & Connect Serial">
+              Set
+            </button>
+          </div>
+          <div id="adbFeedbackMsg" style="font-size:0.7rem; color:var(--text-muted); margin-top:6px; display:none; word-break:break-word;"></div>
         </div>
       </section>
 

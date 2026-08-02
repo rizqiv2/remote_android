@@ -64,6 +64,7 @@ class ScreenStreamer:
         logger.info(f"Screen streamer started @ {settings.SCREEN_FPS} FPS")
         fps_window_start = time.monotonic()
         fps_window_count = 0
+        consecutive_failures = 0
 
         while self._running:
             loop_start = time.monotonic()
@@ -73,6 +74,7 @@ class ScreenStreamer:
                     async with self._lock:
                         frame = await self._adb.screencap_jpeg(quality=65)
                     await self._broadcast(frame)
+                    consecutive_failures = 0
 
                     # FPS accounting
                     fps_window_count += 1
@@ -83,7 +85,17 @@ class ScreenStreamer:
                         fps_window_start = time.monotonic()
 
                 except ADBError as e:
-                    logger.warning(f"Screencap failed: {e}")
+                    consecutive_failures += 1
+                    logger.warning(f"Screencap failed ({consecutive_failures}/3): {e}")
+                    if consecutive_failures >= 3:
+                        logger.info("Multiple screencap failures detected. Triggering ADB auto-reconnect & scan...")
+                        try:
+                            # Try reconnecting to current or scanning local ports
+                            res = await self._adb.scan_and_connect()
+                            logger.info(f"Streamer auto-reconnect result: {res.get('message')}")
+                        except Exception as rec_err:
+                            logger.error(f"Streamer auto-reconnect error: {rec_err}")
+                        consecutive_failures = 0
                     await asyncio.sleep(1.0)  # back-off on ADB error
                     continue
                 except Exception as e:
